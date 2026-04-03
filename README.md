@@ -1,51 +1,84 @@
 # network-debug
 
-An [OpenCode](https://opencode.ai) skill for debugging iOS app network traffic using [mitmproxy-mcp](https://github.com/nicholasgasior/mitmproxy-mcp).
+> An [OpenCode](https://opencode.ai) skill that teaches AI agents to intercept and debug iOS app network traffic using mitmproxy.
 
-## What this is
+Works with physical iPhones and iOS Simulators. Wraps [mitmproxy-mcp](https://github.com/nicholasgasior/mitmproxy-mcp) with iOS-specific configuration, Tailscale setup, and the gotchas you'd otherwise spend hours discovering.
 
-An instruction set that teaches AI agents how to intercept and debug HTTP/HTTPS traffic from physical iPhones and iOS Simulators. It wraps the mitmproxy-mcp server with iOS-specific configuration, workflows, and hard-won lessons.
+---
 
-## What the MCP gives you
+## Quick start
 
-Tools — `start_proxy()`, `inspect_flow()`, `search_traffic()`, `replay_flow()`, etc.
+```bash
+# 1. Clone and link the skill
+git clone https://github.com/kristianvast/opencode-skill-network-debug.git
+ln -s "$(pwd)/opencode-skill-network-debug" ~/.config/opencode/skills/network-debug
 
-## What this skill adds
+# 2. Add mitmproxy-mcp to ~/.config/opencode/opencode.json
+# (see full config below)
 
-Knowledge the MCP doesn't have:
+# 3. Trust the CA cert, configure your device, start debugging
+```
 
-- **Physical device setup** via Tailscale (stable IP across networks)
-- **Apple domain passthrough** — `--ignore-hosts` with correct `host:port` regex so Xcode provisioning, App Store, and iCloud work while proxied
-- **Full body logging** — `flow_detail=4` so you can actually read error responses
-- **iOS Simulator proxy** setup and teardown
-- **CA certificate trust** steps for macOS Keychain, Simulator, and physical devices
-- **Standalone mitmdump** config for physical devices (MCP binds to localhost only)
-- **Traffic filtering** — grep patterns to cut through Apple/Google/system noise
-- **Gotchas** — SSE bodies only log on disconnect, port 8888 not 8080, always disable proxy when done
+Then ask your agent: *"Debug the network traffic from my iPhone app."* It knows what to do.
+
+---
+
+## How it works
+
+```
+iPhone / Simulator
+      |
+      | HTTP proxy (port 8888)
+      v
+  mitmproxy (Mac)  <-->  mitmproxy-mcp  <-->  OpenCode agent
+      |                  (localhost)           (reads this skill)
+      v
+  Internet
+```
+
+The MCP server gives the agent tools to inspect captured traffic. This skill gives the agent the knowledge to configure everything correctly for iOS.
+
+---
+
+## What the MCP gives you vs. what this skill adds
+
+The [mitmproxy-mcp](https://github.com/nicholasgasior/mitmproxy-mcp) server exposes tools: `start_proxy()`, `inspect_flow()`, `search_traffic()`, `replay_flow()`, and others.
+
+That's the raw capability. This skill adds the knowledge to use it correctly on iOS:
+
+| Without this skill | With this skill |
+|---|---|
+| Agent starts proxy on port 8080 | Knows to use port 8888 |
+| `--ignore-hosts` regex silently fails | Correct `host:port` format that actually matches |
+| Response bodies missing from logs | `flow_detail=4` enabled by default |
+| Physical device proxy breaks on network change | Tailscale IP stays stable across networks |
+| MCP can't reach physical device | Standalone mitmdump on `0.0.0.0` bridges the gap |
+| Xcode provisioning breaks while proxied | Apple domains passed through correctly |
+| SSE traffic appears empty | Knows bodies only log on disconnect |
+| Simulator proxy left on after session | Teardown commands included |
+
+---
 
 ## Prerequisites
 
-- [mitmproxy](https://mitmproxy.org/) — installed via `uvx` (no global install needed)
-- [Tailscale](https://tailscale.com/) — on both Mac and iPhone for stable proxy IP
-- [OpenCode](https://opencode.ai) — with mitmproxy-mcp configured
+- [mitmproxy](https://mitmproxy.org/) via `uvx` (no global install needed)
+- [Tailscale](https://tailscale.com/) on both Mac and iPhone, for a stable proxy IP
+- [OpenCode](https://opencode.ai) with mitmproxy-mcp configured
+
+---
 
 ## Setup
 
 ### 1. Install the skill
 
-Copy `SKILL.md` to your OpenCode skills directory:
-
 ```bash
-# Clone
 git clone https://github.com/kristianvast/opencode-skill-network-debug.git
-
-# Symlink into OpenCode skills
 ln -s "$(pwd)/opencode-skill-network-debug" ~/.config/opencode/skills/network-debug
 ```
 
 ### 2. Configure mitmproxy-mcp
 
-Add to your global `~/.config/opencode/opencode.json`:
+Add to your global `~/.config/opencode/opencode.json`. Keep it disabled globally so it only runs when you need it:
 
 ```json
 {
@@ -59,7 +92,7 @@ Add to your global `~/.config/opencode/opencode.json`:
 }
 ```
 
-Enable per-project in `opencode.json`:
+Enable it per-project in the project's `opencode.json`:
 
 ```json
 {
@@ -73,24 +106,25 @@ Enable per-project in `opencode.json`:
 
 ### 3. Trust the CA certificate
 
-On first run, mitmproxy generates a CA cert at `~/.mitmproxy/mitmproxy-ca-cert.pem`.
+On first run, mitmproxy generates a CA cert at `~/.mitmproxy/mitmproxy-ca-cert.pem`. Trust it on each target:
 
-| Target | How |
+| Target | Command / Steps |
 |---|---|
 | macOS | `sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain ~/.mitmproxy/mitmproxy-ca-cert.pem` |
 | iOS Simulator | `xcrun simctl keychain <UDID> add-root-cert ~/.mitmproxy/mitmproxy-ca-cert.pem` |
-| Physical iPhone | Proxy the phone first, then Safari → `http://mitm.it` → install profile → Settings → General → About → Certificate Trust Settings → enable |
+| Physical iPhone | With proxy active, open Safari and go to `http://mitm.it`. Install the profile, then: Settings > General > About > Certificate Trust Settings > enable the mitmproxy cert. |
 
-### 4. Physical device proxy (Tailscale)
+### 4. Start mitmdump for physical device debugging
 
-Use your Mac's Tailscale IP — it never changes, unlike DHCP-assigned Wi-Fi IPs.
+The MCP server binds to localhost only, so physical devices need a separate mitmdump process listening on all interfaces.
+
+First, find your Tailscale IP (stable across networks, unlike your DHCP Wi-Fi address):
 
 ```bash
-# Find your Tailscale IP
 /Applications/Tailscale.app/Contents/MacOS/Tailscale ip -4
 ```
 
-Start mitmdump for physical device debugging:
+Then start mitmdump:
 
 ```bash
 nohup uvx --python 3.13 --from mitmproxy mitmdump \
@@ -104,43 +138,55 @@ nohup uvx --python 3.13 --from mitmproxy mitmdump \
   --ignore-hosts '^(.+\.)?push\.apple\.com:443$' > /tmp/mitmproxy.log 2>&1 &
 ```
 
-On iPhone: **Settings → Wi-Fi → (i) → HTTP Proxy → Manual**
+On iPhone: **Settings > Wi-Fi > (i) > HTTP Proxy > Manual**
 - Server: your Tailscale IP
 - Port: `8888`
 
+When you're done, turn the proxy off on your iPhone. Leaving it on while switching networks breaks all connectivity.
+
 ### 5. iOS Simulator proxy
+
+The Simulator inherits macOS system proxy settings:
 
 ```bash
 # Enable
 networksetup -setwebproxy "Wi-Fi" 127.0.0.1 8888
 networksetup -setsecurewebproxy "Wi-Fi" 127.0.0.1 8888
 
-# Disable (always do this when done!)
+# Disable when done
 networksetup -setwebproxystate "Wi-Fi" off
 networksetup -setsecurewebproxystate "Wi-Fi" off
 ```
 
-## Key details
+Always disable when you're finished. Leaving this on routes all Mac traffic through mitmproxy.
 
-### `--ignore-hosts` regex format
+---
 
-mitmproxy matches against `host:port`, not just hostname:
+## Lessons learned the hard way
 
-```
-# WRONG — won't match (string is "gateway.icloud.com:443")
+### The `--ignore-hosts` regex matches `host:port`, not just hostname
+
+mitmproxy matches the pattern against the full `host:port` string. A pattern without `:443` will never match HTTPS traffic:
+
+```bash
+# Wrong — the actual string is "gateway.icloud.com:443", so this never matches
 --ignore-hosts '.*\.icloud\.com$'
 
-# CORRECT
+# Correct
 --ignore-hosts '^(.+\.)?icloud\.com:443$'
 ```
 
-### `flow_detail=4`
+Without the correct passthrough rules, Xcode provisioning, App Store, and iCloud all break while the proxy is active.
 
-Without this flag, mitmdump only logs status codes and sizes — not response bodies. You need `flow_detail=4` to see error messages from the server.
+### `flow_detail=4` is required to see response bodies
 
-### SSE streams
+Without this flag, mitmdump logs only status codes and byte counts. You won't see error messages, JSON responses, or anything useful for debugging. Always include `--set flow_detail=4`.
 
-SSE (Server-Sent Events) responses are long-lived connections. mitmdump only logs the body when the connection closes. To see SSE traffic, the client must disconnect first.
+### SSE stream bodies only appear after disconnect
+
+SSE (Server-Sent Events) connections are long-lived. mitmdump buffers the body and only writes it to the log when the connection closes. If you're debugging SSE traffic, the client must disconnect before you'll see the body in the captured flow.
+
+---
 
 ## License
 
