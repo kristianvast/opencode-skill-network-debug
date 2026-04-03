@@ -5,7 +5,7 @@ description: Debug HTTP/HTTPS traffic from the iOS app, browser, or backend usin
 
 # Network Debugging with mitmproxy-mcp
 
-Intercept and inspect HTTP/HTTPS traffic from the LIV iOS app, web client, or backend using mitmproxy.
+Intercept and inspect HTTP/HTTPS traffic from iOS apps, web clients, or backends using mitmproxy.
 
 ## When to Use This Skill
 
@@ -43,7 +43,7 @@ The `mitmproxy` MCP server exposes these tools:
 
 ```
 start_proxy(port=8888)
-set_scope(["localhost", "liv.agrointel.no"])
+set_scope(["localhost", "your-api-domain.com"])
 ```
 
 **CRITICAL**: Always call `set_scope()` immediately after starting. Without it, Apple telemetry, iCloud, and OS background noise flood the capture within seconds.
@@ -176,14 +176,3 @@ CA cert: `~/.mitmproxy/mitmproxy-ca-cert.pem`
 | Physical iPhone | Safari → `http://mitm.it` → install profile → Settings → General → About → Certificate Trust Settings → enable |
 
 **Prerequisite for physical device**: The phone must already be proxied through mitmproxy for `mitm.it` to resolve.
-
-## LIV-Specific Notes
-
-- **Production API**: `liv.agrointel.no` (Cloud Run, `europe-north1`)
-- **Local API**: `localhost:3000` (Hono dev server)
-- **SSE endpoint**: `POST /api/chat` — responses stream as `text/event-stream`
-- **Auth**: Cookie-based sessions via better-auth — look for `Set-Cookie` headers on auth endpoints
-- **Common error patterns**:
-  - `401 Unauthorized` — session expired, check cookie presence
-  - `500 Internal Server Error` — inspect response body for error message
-  - Empty responses (`2b` size) — endpoint returns `[]`, may indicate missing data not an error
